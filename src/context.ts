@@ -83,6 +83,7 @@ export interface Config {
         }
     }
     mod?: {
+        honeypot?: Record<string, { channels: string[] }>
         mute?: {
             reapplyTimeoutInterval: number
         }

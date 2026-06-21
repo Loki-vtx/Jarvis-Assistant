@@ -27,6 +27,12 @@ const STRINGS = {
     command: {
         ban: {
             action: (tag: string) => `Banned ${escapeMarkdown(tag)}`,
+            description: {
+                honeypot: "The user has been soft-banned with some messages being deleted. They'll be able to rejoin.",
+            },
+            reason: {
+                honeypot: (channelId: string) => `User triggered the honeypot in <#${channelId}>`,
+            },
         },
         decancer: {
             action: (tag: string) => `Decancered ${escapeMarkdown(tag)}`,
@@ -235,7 +241,7 @@ const STRINGS = {
                     notInGuild: (mention: string) => `Did ${mention} just leave? Guess they couldn't handle the heat.`,
                 },
                 duration: {
-                    invalid: (arg: string) => `I don\'t know how long ${code(arg)} is. Pass me a normal duration.`,
+                    invalid: (arg: string) => `I don't know how long ${code(arg)} is. Pass me a normal duration.`,
                     bad: (min?: string, max?: string) => {
                         let str = "Can't set a timer for that duration."
                         if (min !== undefined && max !== undefined)
