@@ -2,6 +2,7 @@ import './ready'
 import './error'
 
 import './messageCreate/commandOrAI'
+import './messageCreate/honeypot'
 import './interactionCreate/command'
 
 import './guildMemberAdd/autorole'
