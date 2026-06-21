@@ -1,3 +1,5 @@
+export const LOW_FOOTPRINT_SIZE_LIMIT = 1024 * 1024 * 10 // 10 MB
+
 /**
  * Converts a web ReadableStream to a Buffer with a low memory footprint.
  */
@@ -5,6 +7,8 @@ export async function lowFootprintReaderToBuffer(
     reader: import('stream/web').ReadableStreamDefaultReader,
     size: number,
 ): Promise<Buffer> {
+    if (size > LOW_FOOTPRINT_SIZE_LIMIT) throw new Error(`File size exceeds limit of ${LOW_FOOTPRINT_SIZE_LIMIT} bytes`)
+
     const buf = Buffer.allocUnsafe(size)
 
     for (let bytesRead = 0; bytesRead < size; ) {

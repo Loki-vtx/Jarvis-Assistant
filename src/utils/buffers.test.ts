@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { lowFootprintReaderToBuffer } from './buffers'
+import { LOW_FOOTPRINT_SIZE_LIMIT, lowFootprintReaderToBuffer } from './buffers'
 
 // Helper function to create a mock ReadableStreamDefaultReader
 function createMockReader(chunks: Uint8Array[]): ReadableStreamDefaultReader {
@@ -208,5 +208,12 @@ describe('lowFootprintReaderToBuffer', () => {
         expect(result).toBeInstanceOf(Buffer)
         expect(result.length).toBe(5) // Should return only the bytes read
         expect(result.every(byte => byte === 0x42)).toBe(true)
+    })
+
+    test('throws error when size exceeds limit', async () => {
+        const chunk = createChunk(LOW_FOOTPRINT_SIZE_LIMIT + 1)
+        const reader = createMockReader([chunk])
+
+        await expect(lowFootprintReaderToBuffer(reader, 1024 * 1024 * 11)).rejects.toThrow(Error)
     })
 })
