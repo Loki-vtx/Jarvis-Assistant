@@ -1,10 +1,8 @@
-import { config, log } from '~/context'
+import { config } from '~/context'
 import { lowFootprintReaderToBuffer } from './buffers'
 import { getChannel } from './channels'
 import { field } from './embeds'
 import type { Attachment, Embed, File, Message, MessageAttachment, TextChannel, ThreadChannel } from 'oceanic.js'
-
-const LogTag = 'utils/mod'
 
 export async function sendModerationLog(
     embed: Embed,
@@ -33,20 +31,32 @@ export async function sendModerationLog(
                             return {
                                 name: proof.filename,
                                 index: id,
-                                contents: await lowFootprintReaderToBuffer(res.body.getReader(), proof.size),
+                                contents: await lowFootprintReaderToBuffer(
+                                    res.body.getReader(),
+                                    Number(res.headers.get('content-length')) || proof.size,
+                                ),
                             }
                         })
                         .catch(err => {
-                            log.error(LogTag, `Failed to fetch proof file ${proof.url}: ${err}`)
+                            throw new Error(`Failed to fetch proof file ${proof.url}: ${err}`)
                         })
                         .finally(() => {
                             attachments.push({ id })
                         }),
                 )
 
+    const filesStatus = await Promise.allSettled(pFiles)
+    const failedFiles = filesStatus.filter((p): p is PromiseRejectedResult => p.status === 'rejected')
+    if (failedFiles.length > 0) {
+        throw new AggregateError(
+            failedFiles.map(p => p.reason),
+            'Failed to fetch proof files',
+        )
+    }
+
     await channel.createMessage({
         embeds: [embed],
-        files: (await Promise.all(pFiles)).filter(Boolean) as File[],
+        files: filesStatus.filter((p): p is PromiseFulfilledResult<File> => p.status === 'fulfilled').map(p => p.value),
         attachments,
     })
 }
