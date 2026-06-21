@@ -2,7 +2,7 @@ import assert from 'assert'
 import { bot, config, log } from '~/context'
 import { s, string } from '~/strings'
 import { embed, field } from '~/utils/embeds'
-import { getGuild } from '~/utils/guilds'
+import { getGuild, getMember, isMemberManageable } from '~/utils/guilds'
 import { sendModerationLog } from '~/utils/mod'
 
 const EventName = 'messageCreate'
@@ -19,10 +19,19 @@ bot.on(EventName, async msg => {
     if (!guildConfig) return
 
     const guild = await getGuild(guildId)
-    assert(guild, 'Guild not found')
+    assert(guild, 'Guild not available')
+
+    const member = await getMember(guildId, msg.author.id)
+    assert(member, 'Member not available')
 
     const channelId = msg.channelID
     if (!guildConfig.channels.includes(channelId)) return
+
+    if (!(await isMemberManageable(member)))
+        return log.warn(
+            LogTag,
+            `Honeypot triggered by unmanageable member ${msg.author.tag} (${msg.author.id}) in channel ${channelId} of guild ${guildId}, but they couldn't be banned.`,
+        )
 
     log.info(
         LogTag,
