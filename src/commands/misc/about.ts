@@ -8,13 +8,9 @@ import { embed, field } from '~/utils/embeds'
 export default new ChatCommand({
     name: 'about',
     description: 'Who am I?',
-    aliases: ['who', 'who?'],
+    aliases: [],
     options: [],
-    triggers: [
-        CommandTriggers.PlatformImplementation,
-        CommandTriggers.ChatMessage,
-        CommandTriggers.ChatMessagePrefixless,
-    ],
+    triggers: [CommandTriggers.PlatformImplementation],
     contexts: DefaultCommandContexts,
     integrationTypes: DefaultCommandIntegrationTypes,
     async execute(context, _options, actions) {
