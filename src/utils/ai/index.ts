@@ -102,9 +102,11 @@ ${Bosses.filter(Boolean)
   * **Channel**: ${'name' in channel ? channel.name : '(DM)'}
   * **Current Time**: ${formatTime(new Date(), 'full')} (Pacific Time)`
 
+    // Only the directly referenced message keeps attachments
+    const directRefId = msg.messageReference?.messageID
     // System prompt, global history, channel history, and user query are sent as separate blocks.
     // The query is passed via `prompt` instead.
-    const messages = buildModelMessages(history, [msg.id])
+    const messages = buildModelMessages(history, [msg.id], directRefId ? [directRefId] : [])
 
     log.debug(LogTag, `Generating AI response for message ${msg.id} with content:`, inspect(messages, { depth: 5 }))
 

@@ -105,14 +105,17 @@ export async function formatMessageGroup(
     const { author: user } = firstMsg
     const { globalName: ugname, username: uname, id: uid } = user
 
+    const msgChannel =
+        firstMsg.channelID === channel.id ? channel : ((await getChannel(firstMsg.channelID)) as TextableChannel | null)
+
+    // REST-fetched messages don't have guild_id, fall back to the channel's guild
+    const guildID = firstMsg.guildID ?? (msgChannel && 'guildID' in msgChannel ? msgChannel.guildID : null)
+
     const roles: string[] = []
 
     if (uid === firstMsg.client.user.id) roles.push(TagModel)
     if (config.admin.users.includes(uid)) roles.push(TagAdmin)
-    if (
-        firstMsg.guildID &&
-        (await moderatorOnlyPreciate({ executor: user, trigger: firstMsg } as ChatCommandExecuteContext))
-    )
+    if (guildID && (await moderatorOnlyPreciate({ executor: user, trigger: { guildID } } as ChatCommandExecuteContext)))
         roles.push(TagModerator)
 
     const isBossOrMod = roles.includes(TagAdmin) || roles.includes(TagModerator)
@@ -123,11 +126,9 @@ export async function formatMessageGroup(
     attrs += ` time="${formatTime(firstMsg.createdAt)}"`
 
     // Location info (guild + channel, name and ID)
-    const guild = firstMsg.guildID ? await getGuild(firstMsg.guildID) : null
+    const guild = guildID ? await getGuild(guildID) : null
     attrs += guild ? ` server="${sanitizeAttr(guild.name)} (${guild.id})"` : ' server="DM"'
 
-    const msgChannel =
-        firstMsg.channelID === channel.id ? channel : ((await getChannel(firstMsg.channelID)) as TextableChannel | null)
     attrs +=
         msgChannel && 'name' in msgChannel && msgChannel.name
             ? ` channel="#${sanitizeAttr(msgChannel.name)} (${firstMsg.channelID})"`
@@ -167,7 +168,7 @@ export async function formatMessageGroup(
 
     for (const msg of msgs) {
         // Resolve mentions first, then sanitize (escaping first would break the mention markup)
-        let content = sanitizeMessage(await resolveMentions(msg.content, msg.guildID))
+        let content = sanitizeMessage(await resolveMentions(msg.content, guildID))
 
         if (!isBossOrMod && content.length > 1000) {
             content = `${content.slice(0, 1000)}... (trimmed)`
@@ -270,8 +271,15 @@ export function removeMessageFromHistories(messageId: string, channelId?: string
  * 2. Recent messages of the current channel.
  *
  * Entries in `excludeMessageIds` (the current user query, sent separately via `prompt`) are left out.
+ *
+ * Attachments are stripped from history entries except those in `keepMediaMessageIds` (the directly referenced message).
+ * User query keeps its media as it is sent via `prompt`.
  */
-export function buildModelMessages(history: MessageData, excludeMessageIds: string[] = []) {
+export function buildModelMessages(
+    history: MessageData,
+    excludeMessageIds: string[] = [],
+    keepMediaMessageIds: string[] = [],
+) {
     const byCreated = (a: MessageDataEntry, b: MessageDataEntry) =>
         (Number(a.metadata?.created) || 0) - (Number(b.metadata?.created) || 0)
 
@@ -290,7 +298,11 @@ export function buildModelMessages(history: MessageData, excludeMessageIds: stri
     // First content should be user message
     while (messages.length && messages[0]!.role !== 'user') messages.shift()
 
-    return messages
+    return messages.map(e => {
+        if (!e.content.some(p => p.media)) return e
+        if (entryMessageIds(e).some(id => keepMediaMessageIds.includes(id))) return e
+        return { ...e, content: e.content.filter(p => !p.media) }
+    })
 }
 
 export function trimHistory(history: MessageData, maxLength: number) {
