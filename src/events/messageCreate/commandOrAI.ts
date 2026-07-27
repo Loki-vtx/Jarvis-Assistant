@@ -4,7 +4,7 @@ import { ChatCommand } from '~/classes/commands/ChatCommand'
 import { Command, CommandTriggers } from '~/classes/commands/Command'
 import { Emojis } from '~/constants'
 import { bot, commands, config, log } from '~/context'
-import { respondFromMessage } from '~/utils/ai'
+import { isAIAllowed, respondFromMessage } from '~/utils/ai'
 import { adminOnlyPreciate, moderatorOnlyPreciate } from '~/utils/commands'
 import { parseArguments } from '~/utils/parsers'
 import { handleChatCommandError } from '../_shared'
@@ -71,20 +71,12 @@ bot.on(EventName, async msg => {
 
 // TODO: Move this somewhere that we can share with the `hello` and `is` command.
 async function respondWithAI(msg: Message) {
-    if (msg.guildID) {
-        if (!config.ai?.guilds[msg.guildID]) return
-    } else if (!config.ai?.dm) return
+    if (!(await isAIAllowed(msg))) return
 
-    const context = { trigger: msg, executor: msg.author } as ChatCommandExecuteContext
-
-    // TODO: Remove this
-    if ((await adminOnlyPreciate(context)) || (await moderatorOnlyPreciate(context)))
-        await respondFromMessage(msg).catch(err => {
-            log.error(LogTag, `Error responding to message ${msg.id} with AI:`, err)
-            msg.createReaction(Emojis.denied).catch(err =>
-                log.error(LogTag, `Failed to react to message ${msg.id}:`, err),
-            )
-        })
+    await respondFromMessage(msg).catch(err => {
+        log.error(LogTag, `Error responding to message ${msg.id} with AI:`, err)
+        msg.createReaction(Emojis.denied).catch(err => log.error(LogTag, `Failed to react to message ${msg.id}:`, err))
+    })
 }
 
 function getActualMessageContentAndTriggerInfo(

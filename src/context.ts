@@ -78,7 +78,8 @@ export interface Config {
     ai?: {
         dm?: boolean
         guilds: {
-            [guildId: string]: boolean
+            /** `true` enables AI for everyone in the guild. */
+            [guildId: string]: boolean | { roles?: string[]; users?: string[] }
         }
     }
     mod?: {

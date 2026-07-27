@@ -4,6 +4,7 @@ import { Base, type Message } from 'oceanic.js'
 import { inspect } from 'util'
 import { ai, config, log } from '~/context'
 import { getChannel, isTextableChannel } from '../channels'
+import { getMember } from '../guilds'
 import { getUser } from '../users'
 import {
     BaseSystemPrompt,
@@ -30,6 +31,22 @@ import {
 } from './utils'
 
 const LogTag = 'utils/ai'
+
+export async function isAIAllowed(msg: Message): Promise<boolean> {
+    if (!msg.guildID) return Boolean(config.ai?.dm)
+
+    const guildConfig = config.ai?.guilds[msg.guildID]
+    if (!guildConfig) return false
+
+    if (guildConfig === true) return true
+    if (guildConfig.users?.includes(msg.author.id)) return true
+    if (guildConfig.roles?.length) {
+        const member = msg.member ?? (await getMember(msg.guildID, msg.author.id))
+        if (member?.roles.some(role => guildConfig.roles!.includes(role))) return true
+    }
+
+    return false
+}
 
 export async function respondFromMessage(msg: Message) {
     const channel = await getChannel(msg.channelID)
