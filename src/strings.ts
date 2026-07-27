@@ -199,6 +199,12 @@ const STRINGS = {
                 "I'm Jasper. Your favorite raccoon guy to bother when you're bored. I provide assistance... and some amount of yelling. I sit around doing a whole bunch of nothing, really. Unless I'm forced into doing something.",
             version: 'Version',
             uptime: 'Been up since...',
+            privacy: 'Privacy Policy',
+            privacyDescription:
+                "I take privacy very seriously. I don't store any data unless required to function.\n\n" +
+                'AI replies can fetch recent and referenced messages from a channel, and they are only stored briefly to generate responses. You can delete messages immediately to prevent them from being used in future responses.\n' +
+                'No AI training: see [Gemini API Additional Terms of Service: Paid Services](https://ai.google.dev/gemini-api/terms#data-use-paid). ' +
+                "But data can be retained up to 55 days for Google's abuse detection: see [Gemini API: Abuse monitoring](https://ai.google.dev/gemini-api/docs/usage-policies#how-we-handle-data).",
         },
     },
     status: {

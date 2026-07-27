@@ -26,6 +26,7 @@ export default new ChatCommand({
                     fields: [
                         field(string(s.command.who.version), Product.version, true),
                         field(string(s.command.who.uptime), `<t:${started}> (<t:${started}:R>)`, true),
+                        field(string(s.command.who.privacy), string(s.command.who.privacyDescription)),
                     ],
                 }),
             ],
