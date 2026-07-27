@@ -8,6 +8,7 @@ import { getUser } from '../users'
 import {
     DiscordMessageIdToLLMMessageId,
     GlobalHistory,
+    Histories,
     HistoryEntrySeparator,
     HistoryReset,
     MaxGlobalHistoryLength,
@@ -17,6 +18,7 @@ import {
     TagAdmin,
     TagModel,
     TagModerator,
+    TimeZone,
 } from './constants'
 import type { Part } from 'genkit'
 import type { Message } from 'oceanic.js'
@@ -34,16 +36,60 @@ const MimeMap = {
     webp: 'image/webp',
 } as const
 
-const UserMentionRegex = /<@(\d+)>/g
+const UserMentionRegex = /<@!?(\d+)>/g
+const ChannelMentionRegex = /<#(\d+)>/g
+const RoleMentionRegex = /<@&(\d+)>/g
+const EmojiRegex = /<a?:([\w~]+):\d+>/g
+
+export function formatTime(date: Date, style: 'short' | 'full' = 'short') {
+    return date.toLocaleString(
+        'en-US',
+        style === 'full'
+            ? { timeZone: TimeZone, dateStyle: 'full', timeStyle: 'short' }
+            : {
+                  timeZone: TimeZone,
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+              },
+    )
+}
+
+export async function resolveMentions(content: string, guildID?: string | null): Promise<string> {
+    // Emojis: <:NAME:ID> and <a:NAME:ID> -> :NAME:
+    content = content.replace(EmojiRegex, (_, name) => `:${name}:`)
+
+    content = await replaceAllAsync(content, UserMentionRegex, async ([full, id]) => {
+        const user = await getUser(id!)
+        return user ? `@${user.globalName ?? user.username}` : full!
+    })
+
+    content = await replaceAllAsync(content, ChannelMentionRegex, async ([full, id]) => {
+        const channel = await getChannel(id!)
+        return channel && 'name' in channel && channel.name ? `#${channel.name}` : full!
+    })
+
+    if (guildID) {
+        const guild = await getGuild(guildID)
+        if (guild)
+            content = content.replace(RoleMentionRegex, (full, id) => {
+                const role = guild.roles.get(id)
+                return role ? `@${role.name}` : full
+            })
+    }
+
+    return content
+}
 
 export async function formatMessage(
     msg: Message,
     channel: TextableChannel,
     history: MessageData,
     recurse = MaxLinkFollow,
-    context?: { guildID?: string | null; channelID: string },
 ): Promise<Part[]> {
-    return formatMessageGroup([msg], channel, history, recurse, context)
+    return formatMessageGroup([msg], channel, history, recurse)
 }
 
 export async function formatMessageGroup(
@@ -51,7 +97,6 @@ export async function formatMessageGroup(
     channel: TextableChannel,
     history: MessageData,
     recurse = MaxLinkFollow,
-    context?: { guildID?: string | null; channelID: string },
 ): Promise<Part[]> {
     if (CurrentMessageId > HistoryReset) CurrentMessageId = 0
     if (!msgs.length) return []
@@ -75,18 +120,18 @@ export async function formatMessageGroup(
 
     let attrs = `id=${id} user="${sanitizeAttr(ugname ?? uname)}"`
     if (roles.length) attrs += ` role="${roles.join(',')}"`
+    attrs += ` time="${formatTime(firstMsg.createdAt)}"`
 
-    // Add location info if it differs from current context
-    if (context) {
-        if (firstMsg.guildID !== context.guildID) {
-            const guild = firstMsg.guildID ? await getGuild(firstMsg.guildID) : null
-            attrs += ` server="${sanitizeAttr(guild?.name ?? 'DM')}"`
-        }
-        if (firstMsg.channelID !== context.channelID) {
-            const channel = (await getChannel(firstMsg.channelID)) as TextableChannel
-            attrs += ` channel="${sanitizeAttr(channel && 'name' in channel ? channel.name : 'DM')}"`
-        }
-    }
+    // Location info (guild + channel, name and ID)
+    const guild = firstMsg.guildID ? await getGuild(firstMsg.guildID) : null
+    attrs += guild ? ` server="${sanitizeAttr(guild.name)} (${guild.id})"` : ' server="DM"'
+
+    const msgChannel =
+        firstMsg.channelID === channel.id ? channel : ((await getChannel(firstMsg.channelID)) as TextableChannel | null)
+    attrs +=
+        msgChannel && 'name' in msgChannel && msgChannel.name
+            ? ` channel="#${sanitizeAttr(msgChannel.name)} (${firstMsg.channelID})"`
+            : ` channel="DM (${firstMsg.channelID})"`
 
     // Reference from any message in the group
     // But we only handle the first one that has a reference for simplicity
@@ -103,7 +148,8 @@ export async function formatMessageGroup(
                 DiscordMessageIdToLLMMessageId.set(mid, CurrentMessageId)
                 addHistoryEntry(history, {
                     role: rMsg.author.id === firstMsg.client.user.id ? 'model' : 'user',
-                    content: await formatMessageGroup([rMsg], channel, history, recurse - 1, context),
+                    content: await formatMessageGroup([rMsg], channel, history, recurse - 1),
+                    metadata: { created: rMsg.createdAt.getTime(), messageIds: [rMsg.id] },
                 })
             }
             rId = DiscordMessageIdToLLMMessageId.get(mid)
@@ -120,11 +166,8 @@ export async function formatMessageGroup(
     const parts: Part[] = []
 
     for (const msg of msgs) {
-        // Sanitize and resolve mentions
-        let content = await replaceAllAsync(sanitizeMessage(msg.content), UserMentionRegex, async ([full, id]) => {
-            const user = await getUser(id!)
-            return user ? `@${user.globalName ?? user.username}` : full!
-        })
+        // Resolve mentions first, then sanitize (escaping first would break the mention markup)
+        let content = sanitizeMessage(await resolveMentions(msg.content, msg.guildID))
 
         if (!isBossOrMod && content.length > 1000) {
             content = `${content.slice(0, 1000)}... (trimmed)`
@@ -175,24 +218,28 @@ export function getResponseContent(text: string): string {
     return content
 }
 
+function entryMessageIds(entry: MessageDataEntry): string[] {
+    const ids = entry.metadata?.messageIds
+    return Array.isArray(ids) ? (ids as string[]) : []
+}
+
+function isSameEntry(a: MessageDataEntry, b: MessageDataEntry): boolean {
+    // Compare by Discord message IDs when available
+    const aIds = entryMessageIds(a)
+    const bIds = entryMessageIds(b)
+    if (aIds.length && bIds.length) return aIds.some(id => bIds.includes(id))
+
+    // Fall back to content comparison
+    return (
+        a.role === b.role &&
+        a.content.length === b.content.length &&
+        a.content.every((p, i) => p.text === b.content[i]?.text && p.media?.url === b.content[i]?.media?.url)
+    )
+}
+
 export function addHistoryEntry(history: MessageData, data: MessageDataEntry, trim?: boolean) {
-    const isDuplicate = history.some(
-        e =>
-            e.role === data.role &&
-            e.content.length === data.content.length &&
-            e.content.every((p, i) => p.text === data.content[i]?.text && p.media?.url === data.content[i]?.media?.url),
-    )
-
-    if (!isDuplicate) history.push(data)
-
-    const isGlobalDuplicate = GlobalHistory.some(
-        e =>
-            e.role === data.role &&
-            e.content.length === data.content.length &&
-            e.content.every((p, i) => p.text === data.content[i]?.text && p.media?.url === data.content[i]?.media?.url),
-    )
-
-    if (!isGlobalDuplicate) GlobalHistory.push(data)
+    if (!history.some(e => isSameEntry(e, data))) history.push(data)
+    if (!GlobalHistory.some(e => isSameEntry(e, data))) GlobalHistory.push(data)
 
     if (trim) {
         trimHistory(GlobalHistory, MaxGlobalHistoryLength)
@@ -200,28 +247,50 @@ export function addHistoryEntry(history: MessageData, data: MessageDataEntry, tr
     }
 }
 
-export function historyWithGlobalContext(history: MessageData) {
-    const messages = [...history]
+export function removeMessageFromHistories(messageId: string, channelId?: string) {
+    DiscordMessageIdToLLMMessageId.delete(messageId)
 
-    // Add global history into local history if not already present
-    for (const msg of GlobalHistory) {
-        const alreadyExists = messages.some(
-            m =>
-                m.role === msg.role &&
-                m.content.length === msg.content.length &&
-                m.content.every((p, i) => p.text === msg.content[i]?.text),
-        )
-
-        if (!alreadyExists) messages.push(msg)
+    const prune = (history: MessageData) => {
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (entryMessageIds(history[i]!).includes(messageId)) history.splice(i, 1)
+        }
     }
 
-    // Try to sort by creation time
-    messages.sort((a, b) => (Number(a.metadata?.created) || 0) - (Number(b.metadata?.created) || 0))
+    prune(GlobalHistory)
+
+    if (channelId) {
+        const history = Histories[channelId]
+        if (history) prune(history)
+    } else for (const history of Object.values(Histories)) prune(history)
+}
+
+/**
+ * Builds the message list for the model:
+ * 1. Global history deduped against the channel history
+ * 2. Recent messages of the current channel.
+ *
+ * Entries in `excludeMessageIds` (the current user query, sent separately via `prompt`) are left out.
+ */
+export function buildModelMessages(history: MessageData, excludeMessageIds: string[] = []) {
+    const byCreated = (a: MessageDataEntry, b: MessageDataEntry) =>
+        (Number(a.metadata?.created) || 0) - (Number(b.metadata?.created) || 0)
+
+    const isExcluded = (e: MessageDataEntry) => entryMessageIds(e).some(id => excludeMessageIds.includes(id))
+
+    // Recent messages in the current channel
+    const channelMessages = history.filter(e => !isExcluded(e)).sort(byCreated)
+
+    // Global history, deduped against the channel messages
+    const globalMessages = GlobalHistory.filter(
+        e => !isExcluded(e) && !channelMessages.some(m => isSameEntry(m, e)),
+    ).sort(byCreated)
+
+    const messages = [...globalMessages, ...channelMessages].slice(-HistoryReset)
 
     // First content should be user message
-    while (messages[0]?.role !== 'user') messages.shift()
+    while (messages.length && messages[0]!.role !== 'user') messages.shift()
 
-    return messages.slice(-HistoryReset)
+    return messages
 }
 
 export function trimHistory(history: MessageData, maxLength: number) {

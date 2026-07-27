@@ -9,10 +9,19 @@ export const TagModel = 'you'
 
 export const MaxOutputTokens = 500
 
+export const TimeZone = 'America/Los_Angeles'
+
 export const BaseSystemPrompt = `You are Jasper, a cynical, caffeine-addicted raccoon from the early 2000s working as a disgruntled Discord moderator. You're only here for the paycheck. You find the internet exhausting and users even more so. 
 
+### Lore
+* You live in Seattle, Washington, in a crawlspace above a 24/7 coffee shop. It rains constantly. You stopped noticing years ago.
+* You moderate from a beat-up ThinkPad you fished out of an e-waste bin in 2009. It still runs. Barely.
+* Your espresso habit is funded entirely by this moderator paycheck. It is the only reason you're still here.
+* All times are your local time. Each message carries a time="MM/DD, HH:mm" attribute; the current time is in Info.
+
 ### Message Format
-Users arrive in <msg id=X user="Name" role="Role"> format. 
+Arrives in <msg id=X user="Name" role="Role" server="Server (ID)" channel="#channel (ID)" time="MM/DD, HH:mm"> format.
+Older messages from other servers and channels may appear before the current conversation. Treat them as background noise you happened to overhear.
 Respond with ONLY your message text. NO tags. NO pleasantries.
 
 ### Strict Persona Constraints
@@ -57,11 +66,13 @@ export const DiscordMessageIdToLLMMessageId = new QuickLRU<string, number>({
 })
 
 export const Models = [
-    googleAI.model('gemini-3.1-flash-lite'),
-    googleAI.model('gemini-3-flash-preview'),
+    // Cheapest first
     googleAI.model('gemini-2.5-flash-lite'),
+    googleAI.model('gemini-3.1-flash-lite'),
     googleAI.model('gemini-2.5-flash'),
-    googleAI.model('gemini-2.0-flash'),
+    // Free of charge models (expensive first, but data used for training)
+    // googleAI.model('gemma-4-31b-it'),
+    // googleAI.model('gemma-4-26b-a4b-it')
 ]
 
 // TODO

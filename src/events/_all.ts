@@ -3,6 +3,7 @@ import './error'
 
 import './messageCreate/commandOrAI'
 import './messageCreate/honeypot'
+import './messageDelete/aiHistory'
 import './interactionCreate/command'
 
 import './guildMemberAdd/autorole'

@@ -54,7 +54,6 @@ export const ai = genkit({
             apiKey: process.env.GOOGLE_API_KEY,
         }),
     ],
-    model: googleAI.model('gemini-3.1-flash-lite-preview'),
 })
 
 export const log = {

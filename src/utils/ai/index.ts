@@ -21,11 +21,12 @@ import {
 } from './constants'
 import {
     addHistoryEntry,
+    buildModelMessages,
     CurrentMessageId,
     formatMessage,
     formatMessageGroup,
+    formatTime,
     getResponseContent,
-    historyWithGlobalContext,
 } from './utils'
 
 const LogTag = 'utils/ai'
@@ -36,8 +37,6 @@ export async function respondFromMessage(msg: Message) {
 
     // biome-ignore lint/suspicious/noAssignInExpressions: This is readable
     const history = (Histories[msg.channelID] ??= [])
-
-    const context = { guildID: msg.guildID, channelID: msg.channelID }
 
     if (history.length < HistoryMinimumThreshold) {
         try {
@@ -66,11 +65,11 @@ export async function respondFromMessage(msg: Message) {
             const lastGroups = groups.slice(-MaxHistoryGroupLength)
 
             for (const group of lastGroups) {
-                const groupContent = await formatMessageGroup(group, channel, history, 0, context)
+                const groupContent = await formatMessageGroup(group, channel, history, 0)
                 addHistoryEntry(history, {
                     role: 'user',
                     content: groupContent,
-                    metadata: { created: group.at(-1)?.createdAt.getTime() },
+                    metadata: { created: group.at(-1)?.createdAt.getTime(), messageIds: group.map(m => m.id) },
                 })
             }
         } catch (err) {
@@ -78,9 +77,10 @@ export async function respondFromMessage(msg: Message) {
         }
     }
 
-    const content = await formatMessage(msg, channel, history, undefined, context)
+    const content = await formatMessage(msg, channel, history)
     const metadata = {
         created: Date.now(),
+        messageIds: [msg.id],
     }
 
     addHistoryEntry(history, {
@@ -100,9 +100,11 @@ ${Bosses.filter(Boolean)
     .join('\n')}
   * **Server**: ${'guildID' in channel ? channel.guildID : '(None)'}
   * **Channel**: ${'name' in channel ? channel.name : '(DM)'}
-  * **Current Time**: ${new Date().toLocaleString()}`
+  * **Current Time**: ${formatTime(new Date(), 'full')} (Pacific Time)`
 
-    const messages = historyWithGlobalContext(history)
+    // System prompt, global history, channel history, and user query are sent as separate blocks.
+    // The query is passed via `prompt` instead.
+    const messages = buildModelMessages(history, [msg.id])
 
     log.debug(LogTag, `Generating AI response for message ${msg.id} with content:`, inspect(messages, { depth: 5 }))
 
@@ -127,6 +129,7 @@ ${Bosses.filter(Boolean)
                     urlContext: {},
                 },
                 messages,
+                prompt: content,
             })
 
             if (!response.message) throw new Error('No response generated')
@@ -152,8 +155,8 @@ ${Bosses.filter(Boolean)
                 history,
                 {
                     role: 'model',
-                    content: await formatMessage(res, channel, history, 0, context),
-                    metadata: { created: Date.now() },
+                    content: await formatMessage(res, channel, history, 0),
+                    metadata: { created: Date.now(), messageIds: [res.id] },
                 },
                 true,
             )
