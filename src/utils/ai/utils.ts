@@ -1,4 +1,5 @@
-import { config } from '~/context'
+import { config, log } from '~/context'
+import { lowFootprintReaderToBuffer } from '../buffers'
 import { getChannel } from '../channels'
 import { moderatorOnlyPreciate } from '../commands'
 import { getGuild } from '../guilds'
@@ -15,6 +16,8 @@ import {
     MaxHistoryEntryExpiry,
     MaxHistoryLength,
     MaxLinkFollow,
+    MaxMediaSize,
+    MediaFetchTimeout,
     TagAdmin,
     TagModel,
     TagModerator,
@@ -40,6 +43,16 @@ const UserMentionRegex = /<@!?(\d+)>/g
 const ChannelMentionRegex = /<#(\d+)>/g
 const RoleMentionRegex = /<@&(\d+)>/g
 const EmojiRegex = /<a?:([\w~]+):\d+>/g
+
+const PlaceholderImage = '<image>'
+const PlaceholderVideo = '<video>'
+const PlaceholderFile = '<file>'
+
+function mediaPlaceholder(contentType?: string | null) {
+    if (contentType?.startsWith('image/')) return PlaceholderImage
+    if (contentType?.startsWith('video/')) return PlaceholderVideo
+    return PlaceholderFile
+}
 
 export function formatTime(date: Date, style: 'short' | 'full' = 'short') {
     return date.toLocaleString(
@@ -173,18 +186,22 @@ export async function formatMessageGroup(
         if (!isBossOrMod && content.length > 1000) {
             content = `${content.slice(0, 1000)}... (trimmed)`
         }
-        contents.push(content)
 
-        // Image recognition from attachments
+        // So the model knows an attachment exists, even when we won't send the data itself
+        // User content is escaped beforehand, so these cannot be spoofed
+        const placeholders: string[] = []
+
         for (const attachment of msg.attachments.values()) {
-            if (attachment.contentType?.startsWith('image/')) {
+            placeholders.push(mediaPlaceholder(attachment.contentType))
+
+            // Only images
+            if (attachment.contentType?.startsWith('image/'))
                 parts.push({
                     media: {
                         url: attachment.url,
                         contentType: attachment.contentType,
                     },
                 })
-            }
         }
 
         // Embedded images
@@ -197,6 +214,7 @@ export async function formatMessageGroup(
             const contentType = ext && MimeMap[ext as keyof typeof MimeMap]
             if (!contentType) continue
 
+            placeholders.push(PlaceholderImage)
             parts.push({
                 media: {
                     url: embed.thumbnail.url,
@@ -204,6 +222,8 @@ export async function formatMessageGroup(
                 },
             })
         }
+
+        contents.push(placeholders.length ? `${content} ${placeholders.join(' ')}`.trim() : content)
     }
 
     parts.unshift({
@@ -211,6 +231,62 @@ export async function formatMessageGroup(
     })
 
     return parts
+}
+
+/** @returns The data URL or `null` if the media could not be fetched, is too large, or is not an image. */
+async function mediaToDataUrl(url: string, contentType?: string): Promise<string | null> {
+    try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(MediaFetchTimeout) })
+        if (!res.ok) throw new Error(`Unexpected status code: ${res.status}`)
+        if (!res.body) throw new Error('No response body')
+
+        const type = contentType ?? res.headers.get('content-type')
+        if (!type?.startsWith('image/')) throw new Error(`Unexpected content type: ${type}`)
+
+        const size = Number(res.headers.get('content-length'))
+        if (!size) throw new Error('Missing or empty Content-Length')
+        if (size > MaxMediaSize) throw new Error(`Too large: ${size} bytes`)
+
+        // throws RangeError if larger than expected
+        const buffer = await lowFootprintReaderToBuffer(res.body.getReader(), size)
+
+        return `data:${type};base64,${buffer.toString('base64')}`
+    } catch (e) {
+        log.warn('utils/ai', 'Failed to inline media:', url, e)
+        return null
+    }
+}
+
+/**
+ * Downloads media parts and inlines it as a `data:` URL.
+ * Parts that can't be fetched are dropped. Doesn't modify the input.
+ */
+export async function inlineMediaParts(parts: Part[]): Promise<Part[]> {
+    if (!parts.some(p => p.media && !p.media.url.startsWith('data:'))) return parts
+
+    const inlined = await Promise.all(
+        parts.map(async part => {
+            if (!part.media || part.media.url.startsWith('data:')) return part
+
+            const url = await mediaToDataUrl(part.media.url, part.media.contentType)
+            return url ? { ...part, media: { ...part.media, url } } : null
+        }),
+    )
+
+    return inlined.filter(part => part !== null)
+}
+
+export async function inlineMediaMessages(messages: MessageData): Promise<MessageData> {
+    return Promise.all(
+        messages.map(async entry => {
+            if (!entry.content.some(p => p.media)) return entry
+            return { ...entry, content: await inlineMediaParts(entry.content) }
+        }),
+    )
+}
+
+export function hasMedia(...parts: Part[][]): boolean {
+    return parts.some(p => p.some(part => part.media))
 }
 
 export function getResponseContent(text: string): string {

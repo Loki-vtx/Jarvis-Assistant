@@ -19,6 +19,7 @@ import {
     Timeout,
     TopKeywords,
     TopPercent,
+    WithMediaTimeout,
 } from './constants'
 import {
     addHistoryEntry,
@@ -28,6 +29,9 @@ import {
     formatMessageGroup,
     formatTime,
     getResponseContent,
+    hasMedia,
+    inlineMediaMessages,
+    inlineMediaParts,
 } from './utils'
 
 const LogTag = 'utils/ai'
@@ -125,9 +129,23 @@ ${Bosses.filter(Boolean)
     // The query is passed via `prompt` instead.
     const messages = buildModelMessages(history, [msg.id], directRefId ? [directRefId] : [])
 
-    log.debug(LogTag, `Generating AI response for message ${msg.id} with content:`, inspect(messages, { depth: 5 }))
+    // Attachment URLs are stored, but Gemini API can't resolve them, so they are reuploaded before sending.
+    const [promptContent, promptMessages] = await Promise.all([
+        inlineMediaParts(content),
+        inlineMediaMessages(messages),
+    ])
+
+    const withMedia = hasMedia(promptContent, ...promptMessages.map(m => m.content))
+
+    log.debug(
+        LogTag,
+        `Generating AI response for message ${msg.id} with content:`,
+        inspect([...messages, content], { depth: 5 }),
+    )
 
     await channel.sendTyping()
+    // Random delay
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500))
 
     // Try each model in order, if one fails, log the error and try the next one
     for (const model of Models) {
@@ -137,7 +155,7 @@ ${Bosses.filter(Boolean)
             const response = await ai.generate({
                 model,
                 system: BaseSystemPrompt + InfoSection,
-                abortSignal: AbortSignal.timeout(Timeout),
+                abortSignal: AbortSignal.timeout(withMedia ? WithMediaTimeout : Timeout),
                 config: {
                     temperature: Temparature,
                     topK: TopKeywords,
@@ -146,8 +164,8 @@ ${Bosses.filter(Boolean)
                     googleSearch: {},
                     urlContext: {},
                 },
-                messages,
-                prompt: content,
+                messages: promptMessages,
+                prompt: promptContent,
             })
 
             if (!response.message) throw new Error('No response generated')
