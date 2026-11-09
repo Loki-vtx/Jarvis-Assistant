@@ -9,11 +9,13 @@ export default {
         mute: {
             reapplyTimeoutInterval: 86400,
         },
-        guilds: {},
+        guilds: {1416053994853236890
+        roles: [1429091115163848795],
     },
     notes: {},
     prefix: {
         matches: ['J', 'j!'],
         mentions: true,
     },
-}
+  },
+},
