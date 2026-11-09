@@ -55,7 +55,7 @@ bot.on(EventName, async msg => {
         trigger: msg,
     }
 
-    if (!(await ChatCommand.canExecute(cmd, ctx))) return await msg.createReaction(Emojis.Denied)
+    if (!(await ChatCommand.canExecute(cmd, ctx))) return await msg.createReaction(Emojis.❌)
 
     const actions = ChatCommand.createExecuteActions(msg)
 
