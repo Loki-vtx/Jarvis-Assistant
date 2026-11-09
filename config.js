@@ -5,6 +5,12 @@ export default {
     admin: {
         users: ['918437723755384832'],
     },
+    ai: {
+        dm: false,
+        guilds: {
+            '1416053994853236890': { roles: ['1429091115163848795'], users: ['918437723755384832'] },
+        },
+    },
     mod: {
         mute: {
             reapplyTimeoutInterval: 86400,
