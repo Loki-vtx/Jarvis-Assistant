@@ -55,7 +55,7 @@ bot.on(EventName, async msg => {
         trigger: msg,
     }
 
-    if (!(await ChatCommand.canExecute(cmd, ctx))) return await msg.createReaction("<:what:1567298705273393381>")
+    if (!(await ChatCommand.canExecute(cmd, ctx))) return await msg.createReaction(Emojis.what)
 
     const actions = ChatCommand.createExecuteActions(msg)
 
